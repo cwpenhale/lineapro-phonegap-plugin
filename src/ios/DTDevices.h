@@ -689,6 +689,33 @@ typedef enum {
 #define CARD_TYPE_SMARTCARD 2
 
 
+#define KEY_TYPE_AES128_ECB 0x04 >> 2
+#define KEY_TYPE_AES128_CBC 0x08 >> 2
+#define KEY_TYPE_AES256_ECB 0x0C >> 2
+#define KEY_TYPE_AES256_CBC 0x10 >> 2
+#define KEY_TYPE_3DES_ECB 0x14 >> 2
+#define KEY_TYPE_3DES_CBC 0x18 >> 2
+#define KEY_TYPE_DUKPT_3DES_ECB 0x1C >> 2
+#define KEY_TYPE_DUKPT_3DES_CBC 0x20 >> 2
+#define KEY_TYPE_DUKPT_AES128_ECB 0x24 >> 2
+#define KEY_TYPE_DUKPT_AES128_CBC 0x28 >> 2
+
+/**
+ Encrypted tags format Datecs. The packet contains:
+ 1. Format ID [4 bytes, big endian]
+ 2. Encrypted data [variable length]
+ After decrypting the data, it contains:
+ 1. Format ID [4 bytes, big endian]
+ 2. Data length [2 bytes, big endian]  - the length includes the Packet ID, Random data, Tags and Serial  number
+ 3. Packet ID [4 bytes, big endian] - same number that was passed by the function to get the tags
+ 4. Random data [4 bytes]
+ 5. Device unique serial number [16 bytes] - this is the CPU serial number, that is guaranteed to be unique
+ 6. Tags [variable length] - plain TLV structure with the requested tags and data
+ 8. SHA256 [32 bytes] - hash of the Packet ID, Random data, Serial number and tag data
+ */
+#define TAGS_FORMAT_DATECS 1
+
+
 /**
  In the case where the AES256 key can be disabled to return the devce to plain text (LP without encrypted head), loading this key will remove it
  */
@@ -975,6 +1002,10 @@ typedef enum
      */
     FEAT_HID,
     /**
+     SAM module
+     */
+    FEAT_SAM,
+    /**
      Last feature
      */
     FEAT_MAX
@@ -1052,6 +1083,10 @@ typedef enum
      Intermec barcode engine
      */
     BARCODE_INTERMEC=4,
+    /**
+     Motorola barcode engine
+     */
+    BARCODE_MOTOROLA=5,
 }FEAT_BARCODES;
 
 /**
@@ -1152,6 +1187,11 @@ typedef enum
  ISO15693 card number of blocks
  */
 @property (assign) int nBlocks;
+
+/**
+ Card index used to access the card from the SDK API
+ */
+@property (assign) int cardIndex;
 @end
 
 /**
@@ -2418,6 +2458,18 @@ typedef enum
 -(void)emv2OnTransactionFinished:(NSData *)data;
 
 #ifdef BTLE
+/**
+ Notification sent when bluetooth low energy device is connected
+ @param device bluetooth low energy device
+ **/
+-(void)bluetoothLEDeviceConnected:(CBPeripheral *)device;
+
+/**
+ Notification sent when bluetooth low energy connection is lost
+ @param device bluetooth low energy device
+ */
+-(void)bluetoothLEDeviceDisconnected:(CBPeripheral *)device;
+
 -(bool)bluetoothLEDeviceDiscovered:(CBPeripheral *)device;
 -(void)bluetoothLEDiscoverCompletedWithError:(NSError *)error;
 #endif
@@ -2938,6 +2990,14 @@ typedef enum
 -(BOOL)barcodeIntermecSetInitData:(NSData *)data error:(NSError **)error;
 
 /**
+ Allows for a custom initialization data to be sent to the Motorola barcode engine. The data is sent directly, if the barcode is currently powered on, and every time it gets initialized. The setting does not persists, so it is best this command is called upon new connection with Linea.
+ @param data barcode engine initialization data (consult barcode engine manual)
+ @param error pointer to NSError object, where error information is stored in case function fails. You can pass nil if you don't want that information
+ @return TRUE if function succeeded, FALSE otherwise
+ **/
+-(BOOL)barcodeMotorolaSetInitData:(NSData *)data error:(NSError **)error;
+
+/**
  Sends a custom command to the barcode engine and receives a reply
  @param command command data (consult barcode engine manual). You must only pass the data field, the header and checksum are automatically calculated
  @param error pointer to NSError object, where error information is stored in case function fails. You can pass nil if you don't want that information
@@ -3166,6 +3226,7 @@ typedef enum
 -(NSArray *)btleDiscoverSupportedDevices:(int)filter stopOnFound:(BOOL)stopOnFound error:(NSError **)error;
 -(BOOL)btleDiscoverStop;
 -(BOOL)btleConnectToDevice:(CBPeripheral *)aPeripheral error:(NSError **)error;
+-(BOOL)btleDisconnect:(CBPeripheral *)aPeripheral error:(NSError **)error;
 #endif
 
 /**
@@ -3182,6 +3243,11 @@ typedef enum
  Contains bluetooth addresses of the currently connected bluetooth devices or empty array if no connected devices are found
  **/
 @property(readonly) NSArray *btConnectedDevices;
+
+/**
+ Contains currently connected bluetooth LE devices or empty array if no connected devices are found
+ **/
+@property(readonly) NSArray *btleConnectedDevices;
 /**@}*/
 
 
@@ -3653,6 +3719,17 @@ typedef enum
 /**
  Fine-tunes which part of the card data will be masked, and which will be sent in clear text for display/print purposes
  @param showExpiration if set to TRUE, expiration date will be shown in clear text, otherwise will be masked
+ @param showServiceCode if set to TRUE, service code will be shown in clear text, otherwise will be masked
+ @param unmaskedDigitsAtStart the number of digits to show in clear text at the start of the PAN, range from 0 to 6 (default is 4)
+ @param unmaskedDigitsAtEnd the number of digits to show in clear text at the end of the PAN, range from 0, to 4 (default is 4)
+ @param error pointer to NSError object, where error information is stored in case function fails. You can pass nil if you don't want that information
+ @return TRUE if function succeeded, FALSE otherwise
+ */
+-(BOOL)emsrConfigMaskedDataShowExpiration:(BOOL)showExpiration showServiceCode:(BOOL)showServiceCode unmaskedDigitsAtStart:(int)unmaskedDigitsAtStart unmaskedDigitsAtEnd:(int)unmaskedDigitsAtEnd unmaskedDigitsAfter:(int)unmaskedDigitsAfter error:(NSError **)error;
+
+/**
+ Fine-tunes which part of the card data will be masked, and which will be sent in clear text for display/print purposes
+ @param showExpiration if set to TRUE, expiration date will be shown in clear text, otherwise will be masked
  @param unmaskedDigitsAtStart the number of digits to show in clear text at the start of the PAN, range from 0 to 6 (default is 4)
  @param unmaskedDigitsAtEnd the number of digits to show in clear text at the end of the PAN, range from 0, to 4 (default is 4)
  @param error pointer to NSError object, where error information is stored in case function fails. You can pass nil if you don't want that information
@@ -3689,6 +3766,59 @@ typedef enum
 -(EMSRKeysInfo *)emsrGetKeysInfo:(NSError **)error;
 
 /**@}*/
+
+/*******************************************************************************
+ * SAM MODULE COMMANDS
+ *******************************************************************************/
+/** @defgroup G_LNSAM SAM Module Functions
+ Functions to work with the Linea's built-in SAM module
+ @ingroup G_LINEA
+ @{
+ */
+
+/**
+ Powers on the SAM module and returns Answer To Reset (ATR)
+ @param error pointer to NSError object, where error information is stored in case function fails. You can pass nil if you don't want that information
+ @return card ATR if function succeeded, nil otherwise
+ */
+-(NSData *)samPowerOn:(NSError **)error;
+
+/**
+ Powers off the SAM module
+ @param error pointer to NSError object, where error information is stored in case function fails. You can pass nil if you don't want that information
+ @return TRUE if function succeeded, FALSE otherwise
+ */
+-(BOOL)samPowerOff:(NSError **)error;
+
+/**
+ Sends smartcard APDU command in the smartcard put in the SAM slot. Use this function for commands without return data
+ @param cla CLA parameter, refer to smartcard documentation for more
+ @param ins INS parameter, refer to smartcard documentation for more
+ @param p1 P1 parameter, refer to smartcard documentation for more
+ @param p2 P2 parameter, refer to smartcard documentation for more
+ @param inData command specific data or nil, refer to smartcard documentation for more
+ @param apduStatus upon successful result, the 2 byte APDU status is returned here
+ @param error pointer to NSError object, where error information is stored in case function fails. You can pass nil if you don't want that information
+ @return TRUE if function succeeded, FALSE otherwise
+ */
+-(BOOL)samAPDU:(uint8_t)cla ins:(uint8_t)ins p1:(uint8_t)p1 p2:(uint8_t)p2 inData:(NSData *)inData apduStatus:(uint16_t *)apduStatus error:(NSError **)error;
+
+/**
+ Executes combined read/write smartcard APDU command in the smartcard put in the SAM slot
+ @param cla CLA parameter, refer to smartcard documentation for more
+ @param ins INS parameter, refer to smartcard documentation for more
+ @param p1 P1 parameter, refer to smartcard documentation for more
+ @param p2 P2 parameter, refer to smartcard documentation for more
+ @param inData command specific data or nil, refer to smartcard documentation for more
+ @param outLength expected return data, send 0 for 256 byte block, -1 if you don't want to receive anything from the card. This is essentially the Le parameter
+ @param apduStatus upon successful result, the 2 byte APDU status is returned here
+ @param error pointer to NSError object, where error information is stored in case function fails. You can pass nil if you don't want that information
+ @return result data or empty object if function succeeded, nil otherwise
+ */
+-(NSData *)samCAPDU:(uint8_t)cla ins:(uint8_t)ins p1:(uint8_t)p1 p2:(uint8_t)p2 inData:(NSData *)inData outLength:(int)outLength apduStatus:(uint16_t *)apduStatus error:(NSError **)error;
+
+/**@}*/
+
 
 /*******************************************************************************
  * VOLTAGE COMMANDS
@@ -3922,6 +4052,7 @@ typedef enum
  @return TRUE if function succeeded, FALSE otherwise
  */
 -(BOOL)rfRemoveCard:(int)cardIndex error:(NSError **)error;
+-(DTRFCardInfo *)rfDetectCardOnChannel:(int)channel additionalData:(NSData *)additionalData error:(NSError **)error;
 /**
  Authenticate mifare card block with direct key data. This is less secure method, as it requires the key to be present in the program, the prefered way is to store a key once in a secure environment and then authenticate using the stored key.
  @param cardIndex the index of the card as sent by rfCardDetected delegate call
@@ -4073,13 +4204,23 @@ typedef enum
 -(NSData *)iso14APDU:(int)cardIndex cla:(uint8_t)cla ins:(uint8_t)ins p1:(uint8_t)p1 p2:(uint8_t)p2 data:(NSData *)data apduResult:(uint16_t *)apduResult error:(NSError **)error;
 
 /**
- Executes APDU command on ISO1443B compatible card (that includes ISO14A card working with B protocol). The card must be initialized with iso14GetATS first
+ Sends a command to ISO1443-A card
  @param cardIndex the index of the card as sent by rfCardDetected delegate call
  @param data command data
  @param error pointer to NSError object, where error information is stored in case function fails. You can pass nil if you don't want that information
  @return command response data or nil if command failed
  */
--(NSData *)iso14BTranscieve:(int)cardIndex data:(NSData *)data error:(NSError **)error;
+-(NSData *)iso14ATranscieve:(int)cardIndex data:(NSData *)data error:(NSError **)error;
+
+/**
+ Executes APDU command on ISO1443B compatible card (that includes ISO14A card working with B protocol). The card must be initialized with iso14GetATS first
+ @param cardIndex the index of the card as sent by rfCardDetected delegate call
+ @param data command data
+ @param status upon successful execution, the status of the command, returned by the card will be stored here
+ @param error pointer to NSError object, where error information is stored in case function fails. You can pass nil if you don't want that information
+ @return command response data or nil if command failed
+ */
+-(NSData *)iso14BTranscieve:(int)cardIndex data:(NSData *)data status:(uint8_t *)status error:(NSError **)error;
 
 /**
  Sets polling parameters of FeliCa card. Call this function before rfInit!
@@ -4813,19 +4954,20 @@ typedef enum
  */
 -(NSData *)emv2GetCardTracksEncryptedWithFormat:(int)format keyID:(int)keyID error:(NSError **)error;
 /**
- After transaction is finished, you can get the tags, encrypted and in a specified format
+ At online processing or transaction complete phase, you can get the tags, encrypted and in a specified format. This function can be used to get the tags, that are unavailable as plain, such as PAN, track data
  @param tagList a list of tags to get. The format is like TLV list without length and value, i.e. every tag takes as many bytes as needed
  @param format one of the TAGS_FORMAT_* constants
- @param keyID key ID, one of KEY_* constants
+ @param keyType key type, one of KEY_TYPE_* constants
+ @param keyIndex the index of the key to use, in case there are multiple keys of the same type
  @param error pointer to NSError object, where error information is stored in case function fails. You can pass nil if you don't want that information
- @return TRUE if function succeeded, FALSE otherwise
+ @return encrypted packet if function succeeded, nil otherwise
  */
--(NSData *)emv2GetTagsEncrypted:(NSData *)tagList format:(int)format keyID:(int)keyID error:(NSError **)error;
+-(NSData *)emv2GetTagsEncrypted:(NSData *)tagList format:(int)format keyType:(int)keyType keyIndex:(int)keyIndex packetID:(uint32_t)packetID error:(NSError **)error;
 /**
  After transaction is finished, you can get the tags in plain. Only non-sensitive tags can be retrieved in plain, no pan/discretionary data will be returned
  @param tagList a list of tags to get. The format is like TLV list without length and value, i.e. every tag takes as many bytes as needed
  @param error pointer to NSError object, where error information is stored in case function fails. You can pass nil if you don't want that information
- @return TRUE if function succeeded, FALSE otherwise
+ @return plain TLV data if function succeeded, nil otherwise
  */
 -(NSData *)emv2GetTagsPlain:(NSData *)tagList error:(NSError **)error;
 
@@ -6907,8 +7049,7 @@ typedef enum {
 -(BOOL)uiEnableVibrationForTime:(float)time error:(NSError **)error;
 
 /**
- Enables or disables external speaker. The speaker is active as long as the device controlling it is connected/awake, so if you want the speaker
- to be used in background, you have to set external accessory background mode in your application or use setAutoOffWhenIdle to set long standby time
+ Enables or disables external speaker. The speaker is active as long as the device controlling it is connected/awake, so if you want the speaker to be used in background, you have to set external accessory background mode in your application or use setAutoOffWhenIdle to set long standby time
  @note enabling external speaker consumes power for the amplifier, so in order to conserve battery, enable it only when needed
  @param enabled TRUE if you want to enable the external speaker
  @param error returns error information, you can pass nil if you don't want it
@@ -6923,6 +7064,40 @@ typedef enum {
  @return TRUE if function succeeded, FALSE otherwise
  */
 -(BOOL)uiIsSpeakerEnabled:(BOOL *)enabled error:(NSError **)error;
+
+/**
+ Enables or disables external speaker button switch
+ @note enabling external speaker consumes power for the amplifier, so in order to conserve battery, enable it only when needed
+ @param enabled TRUE if you want to enable the external speaker button
+ @param error returns error information, you can pass nil if you don't want it
+ @return TRUE if function succeeded, FALSE otherwise
+ */
+-(BOOL)uiEnableSpeakerButton:(BOOL)enabled error:(NSError **)error;
+
+/**
+ Returns if external speaker control button is enabled
+ @param enabled stores the current state of the external speaker control button, TRUE means it is enabled, FALSE - disabled
+ @param error returns error information, you can pass nil if you don't want it
+ @return TRUE if function succeeded, FALSE otherwise
+ */
+-(BOOL)uiIsSpeakerButtonEnabled:(BOOL *)enabled error:(NSError **)error;
+
+/**
+ Enables or disables external speaker automatic control. When enabled, if no application is currently connected to the accessory, then the external speaker is automatically turned on for as long as the device is powered on or until a program connects to assume control. Enabling automatic control along with disabling the speaker button, then
+ @note enabling external speaker consumes power for the amplifier, so in order to conserve battery, enable it only when needed
+ @param enabled TRUE if you want to enable the external speaker automatic control
+ @param error returns error information, you can pass nil if you don't want it
+ @return TRUE if function succeeded, FALSE otherwise
+ */
+-(BOOL)uiEnableSpeakerAutoControl:(BOOL)enabled error:(NSError **)error;
+
+/**
+ Returns if external speaker automatic control is enabled
+ @param enabled stores the current state of the external speaker automatic control, TRUE means it is enabled, FALSE - disabled
+ @param error returns error information, you can pass nil if you don't want it
+ @return TRUE if function succeeded, FALSE otherwise
+ */
+-(BOOL)uiIsSpeakerAutoControlEnabled:(BOOL *)enabled error:(NSError **)error;
 
 
 /**
